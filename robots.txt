@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /search
+Disallow: /api/
+Sitemap: https://ljk00000.github.io/sitemap.xml
