@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
 Disallow: /search
+Disallow: /login
 Disallow: /api/
 Sitemap: https://ljk00000.github.io/sitemap.xml
