@@ -22,7 +22,6 @@ jobs:
       changed: ${{ steps.check.outputs.changed }}
     env:
       PAGES_SITE_URL: https://ljk00000.github.io
-      PAGES_CONTENT_DIR: ${{ runner.temp }}/myblog-content
     steps:
       - name: Read public snapshot
         env:
@@ -33,8 +32,10 @@ jobs:
           umask 077
           session=$(mktemp -d)
           trap 'rm -rf -- "$session"' EXIT
-          printf '%s\n' "$PAGES_SSH_KEY" > "$session/key"
+          printf '%s\n' "$PAGES_SSH_KEY" | tr -d '\r' > "$session/key"
           printf '%s\n' "$PAGES_SSH_HOST_KEY" > "$session/known_hosts"
+          PAGES_CONTENT_DIR="$RUNNER_TEMP/myblog-content"
+          printf 'PAGES_CONTENT_DIR=%s\n' "$PAGES_CONTENT_DIR" >> "$GITHUB_ENV"
           mkdir -p "$PAGES_CONTENT_DIR"
           ssh -nT -F /dev/null -i "$session/key" -o IdentitiesOnly=yes -o BatchMode=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$session/known_hosts" \
