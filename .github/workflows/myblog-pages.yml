@@ -1,0 +1,101 @@
+name: Publish Myblog
+
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  push:
+    branches: [main]
+    paths: ['.github/workflows/myblog-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: myblog-pages
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    env:
+      PAGES_SITE_URL: https://ljk00000.github.io
+      PAGES_CONTENT_DIR: ${{ runner.temp }}/myblog-content
+    steps:
+      - name: Read public snapshot
+        env:
+          PAGES_SSH_KEY: ${{ secrets.MYBLOG_PAGES_READ_KEY }}
+          PAGES_SSH_HOST_KEY: ${{ vars.MYBLOG_PAGES_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          session=$(mktemp -d)
+          trap 'rm -rf -- "$session"' EXIT
+          printf '%s\n' "$PAGES_SSH_KEY" > "$session/key"
+          printf '%s\n' "$PAGES_SSH_HOST_KEY" > "$session/known_hosts"
+          mkdir -p "$PAGES_CONTENT_DIR"
+          ssh -nT -F /dev/null -i "$session/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$session/known_hosts" \
+            -o ConnectTimeout=12 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 \
+            myblog-pages-read@113.249.102.216 public-snapshot > "$session/content.tar.gz"
+          tar -xzf "$session/content.tar.gz" -C "$PAGES_CONTENT_DIR" --no-same-owner --no-same-permissions
+      - uses: actions/checkout@v6
+        with:
+          repository: ljk00000/Myblog
+          ref: main
+          path: source
+          persist-credentials: false
+      - name: Check for changes since the live deployment
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          source_hash=$(git -C source rev-parse HEAD)
+          content_hash=$(cat "$PAGES_CONTENT_DIR/source.sha256")
+          [[ "$content_hash" =~ ^[0-9a-f]{64}$ ]]
+          marker="$source_hash $content_hash"
+          live=$(curl --max-time 10 -fsS "$PAGES_SITE_URL/pages-sync.txt?v=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" 2>/dev/null || true)
+          if [[ "$EVENT_NAME" == schedule && "$marker" == "$live" ]]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$marker" > "$RUNNER_TEMP/pages-sync.txt"
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v6
+        if: steps.check.outputs.changed == 'true'
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Install locked dependencies
+        if: steps.check.outputs.changed == 'true'
+        working-directory: source/blog-web
+        run: |
+          npm install --global pnpm@10.32.1
+          pnpm install --frozen-lockfile
+      - name: Export published content
+        if: steps.check.outputs.changed == 'true'
+        working-directory: source/blog-web
+        run: |
+          pnpm export:pages
+          cp "$RUNNER_TEMP/pages-sync.txt" .pages-output/
+      - uses: actions/upload-pages-artifact@v4
+        if: steps.check.outputs.changed == 'true'
+        with:
+          path: source/blog-web/.pages-output
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
