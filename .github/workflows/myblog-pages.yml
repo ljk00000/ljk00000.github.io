@@ -22,6 +22,7 @@ jobs:
       changed: ${{ steps.check.outputs.changed }}
     env:
       PAGES_SITE_URL: https://ljk00000.github.io
+      PAGES_ARTICLE_VIEWS: '1'
     steps:
       - name: Read public snapshot
         env:
